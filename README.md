@@ -214,8 +214,8 @@ data/
 
 ```bibtex
 @article{chen2025large,
-  title={Large Cognition Model: Towards Pretrained Electroencephalography (EEG) Foundation Model},
-  author={Chen, ...},
+  title={Large cognition model: Towards pretrained eeg foundation model},
+  author={Chen, Chi-Sheng and Chen, Ying-Jung and Tsai, Aidan Hung-Wen},
   journal={arXiv preprint arXiv:2502.17464},
   year={2025}
 }
