@@ -1,0 +1,7 @@
+torch>=2.0
+mne>=1.6
+scikit-learn
+numpy
+scipy
+tqdm
+wandb
