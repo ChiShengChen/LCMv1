@@ -197,7 +197,7 @@ class LCM(nn.Module):
     def load_from_checkpoint(
         cls, path: str, model_config: ModelConfig, data_config: DataConfig
     ) -> "LCM":
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(path, map_location="cpu")
         model = cls(model_config, data_config)
         model.load_state_dict(checkpoint["model_state_dict"])
         return model
