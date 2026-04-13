@@ -20,10 +20,27 @@ from lcm.utils import (
     save_checkpoint,
 )
 
-# Dataset metadata for EEG-FM-Bench
+# Dataset metadata for EEG-FM-Bench (14 downstream tasks)
 EEGFM_DATASET_INFO = {
+    # Motor Imagery
     "bcic_2a": {"num_classes": 4, "class_names": ["left", "right", "foot", "tongue"]},
+    "bcic_1a": {"num_classes": 3, "class_names": ["left", "right", "foot"]},
+    "motor_mv_img": {"num_classes": 4, "class_names": ["left", "right", "both_fist", "foot"]},
+    # Emotion
+    "seed": {"num_classes": 3, "class_names": ["sad", "neutral", "happy"]},
     "seed_iv": {"num_classes": 4, "class_names": ["neutral", "sad", "fear", "happy"]},
+    "seed_v": {"num_classes": 5, "class_names": ["disgust", "fear", "sad", "neutral", "happy"]},
+    "seed_vii": {"num_classes": 7, "class_names": ["disgust", "fear", "sad", "neutral", "happy", "anger", "surprise"]},
+    # Clinical
+    "tuab": {"num_classes": 2, "class_names": ["normal", "abnormal"]},
+    "tuev": {"num_classes": 6, "class_names": ["spsw", "gped", "pled", "eyem", "artf", "bckg"]},
+    "tusl": {"num_classes": 3, "class_names": ["seiz", "slow", "bckg"]},
+    "tuep": {"num_classes": 2, "class_names": ["epilepsy", "no_epilepsy"]},
+    "siena_scalp": {"num_classes": 2, "class_names": ["seizure", "normal"]},
+    "adftd": {"num_classes": 3, "class_names": ["AD", "FTD", "CN"]},
+    # Cognitive / Visual
+    "things_eeg_2": {"num_classes": 2, "class_names": ["non-target", "target"]},
+    "inria_bci": {"num_classes": 2, "class_names": ["wrong", "correct"]},
 }
 
 

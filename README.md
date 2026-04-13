@@ -108,56 +108,106 @@ Output [B, N, D]
 
 ---
 
-## Usage
+## Usage with EEG-FM-Bench
 
-### Install Dependencies
+### Step 1: Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Pretraining
+### Step 2: Setup Data (Symlink from Elements drive)
 
 ```bash
-python -m lcm.train_pretrain \
-    --data_root /path/to/data \
+python -m lcm.preprocess_eegfm \
+    --elements_root /media/meow/Elements \
+    --eegfm_root /media/meow/Transcend/time_series_benchmark/EEG-FM-Bench \
+    --link_only
+```
+
+Then run EEG-FM-Bench preprocessing:
+```bash
+cd /media/meow/Transcend/time_series_benchmark/EEG-FM-Bench
+python preproc.py --config assets/conf/preproc/preproc_lcm.yaml
+```
+
+### Step 3: Pretraining (Self-Supervised)
+
+```bash
+python -m lcm.train_pretrain_eegfm \
+    --eegfm_root /path/to/EEG-FM-Bench/assets/data/processed/fs_256 \
     --epochs 200 \
-    --batch_size 1024 \
-    --lr 1.5e-4 \
-    --seed 42 \
-    --gpu 0
-```
-
-### Fine-Tuning
-
-```bash
-python -m lcm.train_finetune \
-    --dataset bcic2a \
-    --pretrained_path checkpoints/pretrain/checkpoint_epoch200.pt \
-    --epochs 100 \
     --batch_size 64 \
-    --lr 1e-4 \
-    --seeds 42 123 456 \
     --gpu 0
 ```
 
-### Fine-Tuning (Linear Probing)
+The script auto-detects all available preprocessed datasets on disk.
+
+### Step 4: Fine-Tuning
 
 ```bash
-python -m lcm.train_finetune \
-    --dataset bcic2a \
-    --pretrained_path checkpoints/pretrain/checkpoint_epoch200.pt \
-    --freeze_encoder \
+python -m lcm.train_finetune_eegfm \
+    --dataset bcic_2a \
+    --pretrained_path checkpoints/pretrain_eegfm/checkpoint_epoch200.pt \
+    --epochs 100 \
+    --seeds 42 123 456 \
     --gpu 0
 ```
 
 ### Fine-Tuning (From Scratch, No Pretrain)
 
 ```bash
-python -m lcm.train_finetune \
-    --dataset bcic2a \
-    --gpu 0
+python -m lcm.train_finetune_eegfm --dataset bcic_2a --gpu 0
 ```
+
+### Fine-Tuning (Linear Probing)
+
+```bash
+python -m lcm.train_finetune_eegfm \
+    --dataset bcic_2a \
+    --pretrained_path checkpoints/pretrain_eegfm/checkpoint_epoch200.pt \
+    --freeze_encoder --gpu 0
+```
+
+---
+
+## Pretrain / Finetune Dataset Split
+
+### Pretrain Datasets (Self-Supervised, 11 datasets)
+
+| Dataset | EEG-FM-Bench ID | Channels | Paradigm |
+|---------|-----------------|----------|----------|
+| TU EEG Corpus | `tueg` | 22 (TCP) | Clinical (largest) |
+| TU Abnormal | `tuab` | 22 | Clinical |
+| TU Artifact | `tuar` | 22 | Artifact |
+| TU Seizure | `tusz` | 22 | Seizure |
+| SPIS Resting State | `spis_resting_state` | 64 | Resting |
+| PhysioMI | `motor_mv_img` | 64 | Motor Imagery + Execution |
+| Grasp & Lift | `grasp_and_lift` | 32 | Motor Execution |
+| EmoBrain | `emobrain` | 64 | Emotion |
+| Target vs NonTarget | `target_versus_non` | 32 | ERP/P300 |
+| THINGS-EEG | `things_eeg` | 59 | Visual |
+| Inner Speech | `inner_speech` | 128 | Lingual |
+
+### Finetune Datasets (14 Downstream Tasks)
+
+| Dataset | EEG-FM-Bench ID | Classes | Task |
+|---------|-----------------|---------|------|
+| BCIC-2A | `bcic_2a` | 4 | Motor Imagery |
+| BCIC-1A | `bcic_1a` | 3 | Motor Imagery |
+| PhysioMI | `motor_mv_img` | 4 | Motor Imagery |
+| SEED | `seed` | 3 | Emotion |
+| SEED-IV | `seed_iv` | 4 | Emotion |
+| SEED-V | `seed_v` | 5 | Emotion |
+| SEED-VII | `seed_vii` | 7 | Emotion |
+| TUAB | `tuab` | 2 | Abnormal Detection |
+| TUEV | `tuev` | 6 | Event Classification |
+| TUSL | `tusl` | 3 | Slowing Detection |
+| TUEP | `tuep` | 2 | Epilepsy Detection |
+| Siena Scalp | `siena_scalp` | 2 | Seizure Detection |
+| ADFTD | `adftd` | 3 | Dementia Classification |
+| THINGS-EEG-2 | `things_eeg_2` | 2 | Visual Target Detection |
+| Inria BCI | `inria_bci` | 2 | P300 BCI |
 
 ---
 
@@ -184,29 +234,6 @@ Toggle components via CLI flags:
 | BCIC-2A (pretrained) | 0.6166 ± 0.0083 | 0.4619 ± 0.0241 | 0.5932 ± 0.0121 |
 | BCIC-2B (no pretrain) | 0.6825 ± 0.1024 | 0.3651 ± 0.2047 | 0.6766 ± 0.1079 |
 | BCIC-2B (pretrained) | 0.7523 ± 0.0097 | 0.4731 ± 0.0082 | 0.8244 ± 0.0026 |
-
----
-
-## Data Directory Layout
-
-Preprocessed data should be organized as:
-
-```
-data/
-├── physio_mi/
-│   └── pretrain/
-│       ├── segment_000000.npy    # [C, 1024] float32
-│       ├── segment_000001.npy
-│       └── ...
-├── bcic2a/
-│   ├── train/
-│   │   ├── subject_000_segments.npy   # [N, C, 1024] float32
-│   │   └── subject_000_labels.npy     # [N] int
-│   └── test/
-│       ├── subject_000_segments.npy
-│       └── subject_000_labels.npy
-└── ...
-```
 
 ---
 

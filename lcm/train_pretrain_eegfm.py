@@ -108,13 +108,51 @@ def main():
     logger.info(f"Total parameters: {total:,}")
 
     # Data — use all available EEG-FM-Bench datasets for pretraining
-    dataset_configs = [
-        # Pretrain dataset
+    # Full pretrain dataset list (self-supervised, labels ignored)
+    ALL_PRETRAIN_CONFIGS = [
+        # --- Dedicated pretrain datasets ---
+        {"name": "tueg", "config": "pretrain", "splits": ["train"]},
+        {"name": "tuab", "config": "pretrain", "splits": ["train"]},
+        {"name": "tuar", "config": "pretrain", "splits": ["train"]},
+        {"name": "tusz", "config": "pretrain", "splits": ["train"]},
+        {"name": "tuep", "config": "pretrain", "splits": ["train"]},
+        {"name": "tuev", "config": "pretrain", "splits": ["train"]},
+        {"name": "tusl", "config": "pretrain", "splits": ["train"]},
         {"name": "spis_resting_state", "config": "pretrain", "splits": ["train", "validation"]},
-        # Use finetune datasets' train splits for pretraining too (labels ignored)
-        {"name": "bcic_2a", "config": "finetune", "splits": ["train"]},
+        {"name": "motor_mv_img", "config": "pretrain", "splits": ["train"]},
+        {"name": "grasp_and_lift", "config": "pretrain", "splits": ["train"]},
+        {"name": "emobrain", "config": "pretrain", "splits": ["train"]},
+        {"name": "target_versus_non", "config": "pretrain", "splits": ["train"]},
+        {"name": "things_eeg", "config": "pretrain", "splits": ["train"]},
+        {"name": "inner_speech", "config": "pretrain", "splits": ["train"]},
+        # --- Borrow finetune train splits (labels ignored) ---
+        {"name": "seed", "config": "finetune", "splits": ["train"]},
         {"name": "seed_iv", "config": "finetune", "splits": ["train"]},
+        {"name": "seed_v", "config": "finetune", "splits": ["train"]},
+        {"name": "seed_vii", "config": "finetune", "splits": ["train"]},
+        {"name": "bcic_2a", "config": "finetune", "splits": ["train"]},
+        {"name": "bcic_1a", "config": "finetune", "splits": ["train"]},
+        {"name": "siena_scalp", "config": "finetune", "splits": ["train"]},
+        {"name": "adftd", "config": "finetune", "splits": ["train"]},
+        {"name": "things_eeg_2", "config": "finetune", "splits": ["train"]},
+        {"name": "inria_bci", "config": "finetune", "splits": ["train"]},
     ]
+
+    # Filter to only datasets that exist on disk
+    dataset_configs = []
+    for dc in ALL_PRETRAIN_CONFIGS:
+        arrow_dir = f"{args.eegfm_root}/{dc['name']}/{dc['config']}/1.0.0"
+        if os.path.isdir(arrow_dir):
+            dataset_configs.append(dc)
+        else:
+            logger.debug(f"Skipping {dc['name']}/{dc['config']}: not found at {arrow_dir}")
+
+    if not dataset_configs:
+        logger.error("No pretrain datasets found! Run preprocessing first.")
+        logger.error("  python -m lcm.preprocess_eegfm --elements_root /media/meow/Elements")
+        return
+
+    logger.info(f"Found {len(dataset_configs)}/{len(ALL_PRETRAIN_CONFIGS)} pretrain datasets")
 
     dataloader = get_eegfm_pretrain_loader(
         eegfm_processed_root=args.eegfm_root,
