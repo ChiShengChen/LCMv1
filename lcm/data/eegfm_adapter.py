@@ -2,6 +2,7 @@ from __future__ import annotations
 """Adapter to load EEG-FM-Bench processed Arrow data for LCM pretraining/finetuning."""
 
 import glob
+import os
 from pathlib import Path
 
 import numpy as np
@@ -30,10 +31,22 @@ class EEGFMDataset(Dataset):
         self.dataset_name = dataset_name
 
         # Load all Arrow files for this split
+        # Auto-detect version directory (1.0.0, 3.0.1, etc.)
         pattern = f"{arrow_dir}/{dataset_name}-{split}-*.arrow"
         files = sorted(glob.glob(pattern))
         if not files:
-            raise FileNotFoundError(f"No Arrow files found: {pattern}")
+            # Try searching in versioned subdirs or incomplete dirs
+            for sub in sorted(glob.glob(f"{arrow_dir}/*")):
+                if os.path.isdir(sub):
+                    alt_pattern = f"{sub}/{dataset_name}-{split}-*.arrow"
+                    files = sorted(glob.glob(alt_pattern))
+                    if files:
+                        break
+        if not files:
+            raise FileNotFoundError(
+                f"No Arrow files found: {pattern} "
+                f"(also checked subdirs of {arrow_dir})"
+            )
 
         self.segments = []
         self.labels = []
@@ -154,7 +167,17 @@ def get_eegfm_pretrain_loader(
     """
     datasets = []
     for dc in dataset_configs:
-        arrow_dir = f"{eegfm_processed_root}/{dc['name']}/{dc['config']}/1.0.0"
+        # Auto-detect version directory
+        base = f"{eegfm_processed_root}/{dc['name']}/{dc['config']}"
+        arrow_dir = None
+        if os.path.isdir(base):
+            for sub in sorted(os.listdir(base)):
+                sub_path = os.path.join(base, sub)
+                if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
+                    arrow_dir = sub_path
+                    break
+        if arrow_dir is None:
+            arrow_dir = f"{base}/1.0.0"  # fallback
         for split in dc.get("splits", ["train"]):
             try:
                 ds = EEGFMDataset(
@@ -200,7 +223,17 @@ def get_eegfm_finetune_loaders(
     Returns:
         (train_loader, test_loader, val_loader or None)
     """
-    arrow_dir = f"{eegfm_processed_root}/{dataset_name}/{config_name}/1.0.0"
+    # Auto-detect version directory
+    base = f"{eegfm_processed_root}/{dataset_name}/{config_name}"
+    arrow_dir = None
+    if os.path.isdir(base):
+        for sub in sorted(os.listdir(base)):
+            sub_path = os.path.join(base, sub)
+            if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
+                arrow_dir = sub_path
+                break
+    if arrow_dir is None:
+        arrow_dir = f"{base}/1.0.0"  # fallback
 
     train_ds = EEGFMFinetuneDataset(arrow_dir, dataset_name, "train", segment_length, max_channels)
     test_ds = EEGFMFinetuneDataset(arrow_dir, dataset_name, "test", segment_length, max_channels)

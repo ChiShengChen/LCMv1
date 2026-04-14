@@ -2,6 +2,7 @@ from __future__ import annotations
 """Pretrain LCM using EEG-FM-Bench processed data."""
 
 import argparse
+import glob
 import os
 import time
 
@@ -138,14 +139,21 @@ def main():
         {"name": "inria_bci", "config": "finetune", "splits": ["train"]},
     ]
 
-    # Filter to only datasets that exist on disk
+    # Filter to only datasets that exist on disk (auto-detect version dirs)
     dataset_configs = []
     for dc in ALL_PRETRAIN_CONFIGS:
-        arrow_dir = f"{args.eegfm_root}/{dc['name']}/{dc['config']}/1.0.0"
-        if os.path.isdir(arrow_dir):
-            dataset_configs.append(dc)
-        else:
-            logger.debug(f"Skipping {dc['name']}/{dc['config']}: not found at {arrow_dir}")
+        base_dir = f"{args.eegfm_root}/{dc['name']}/{dc['config']}"
+        found = False
+        if os.path.isdir(base_dir):
+            # Check for any version subdir containing arrow files
+            for sub in sorted(os.listdir(base_dir)):
+                sub_path = os.path.join(base_dir, sub)
+                if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
+                    dataset_configs.append(dc)
+                    found = True
+                    break
+        if not found:
+            logger.debug(f"Skipping {dc['name']}/{dc['config']}: no arrow files at {base_dir}")
 
     if not dataset_configs:
         logger.error("No pretrain datasets found! Run preprocessing first.")
