@@ -11,11 +11,35 @@ import torch
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 
-class EEGFMDataset(Dataset):
-    """Load EEG data from EEG-FM-Bench Arrow files.
+def _find_arrow_files(arrow_dir: str, dataset_name: str, split: str) -> list[str]:
+    """Find Arrow files, auto-detecting version subdirectories."""
+    pattern = f"{arrow_dir}/{dataset_name}-{split}-*.arrow"
+    files = sorted(glob.glob(pattern))
+    if not files:
+        for sub in sorted(glob.glob(f"{arrow_dir}/*")):
+            if os.path.isdir(sub):
+                alt_pattern = f"{sub}/{dataset_name}-{split}-*.arrow"
+                files = sorted(glob.glob(alt_pattern))
+                if files:
+                    break
+    return files
 
-    Handles variable-length windows by slicing into fixed-length segments.
-    Zero-pads channels to max_channels.
+
+def _find_arrow_dir(eegfm_processed_root: str, name: str, config: str) -> str | None:
+    """Auto-detect version directory for a dataset."""
+    base = f"{eegfm_processed_root}/{name}/{config}"
+    if os.path.isdir(base):
+        for sub in sorted(os.listdir(base)):
+            sub_path = os.path.join(base, sub)
+            if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
+                return sub_path
+    return None
+
+
+class EEGFMDataset(Dataset):
+    """Lazy-loading EEG dataset from EEG-FM-Bench Arrow files.
+
+    Only builds an index on init. Data is read on-the-fly per __getitem__.
     """
 
     def __init__(
@@ -30,68 +54,67 @@ class EEGFMDataset(Dataset):
         self.max_channels = max_channels
         self.dataset_name = dataset_name
 
-        # Load all Arrow files for this split
-        # Auto-detect version directory (1.0.0, 3.0.1, etc.)
-        pattern = f"{arrow_dir}/{dataset_name}-{split}-*.arrow"
-        files = sorted(glob.glob(pattern))
-        if not files:
-            # Try searching in versioned subdirs or incomplete dirs
-            for sub in sorted(glob.glob(f"{arrow_dir}/*")):
-                if os.path.isdir(sub):
-                    alt_pattern = f"{sub}/{dataset_name}-{split}-*.arrow"
-                    files = sorted(glob.glob(alt_pattern))
-                    if files:
-                        break
+        files = _find_arrow_files(arrow_dir, dataset_name, split)
         if not files:
             raise FileNotFoundError(
-                f"No Arrow files found: {pattern} "
-                f"(also checked subdirs of {arrow_dir})"
+                f"No Arrow files for {dataset_name}/{split} in {arrow_dir}"
             )
 
-        self.segments = []
-        self.labels = []
-        self.n_channels_list = []
+        # Build index: (file_idx, row_idx, seg_offset, n_channels, label)
+        self.index = []
+        self.files = files
+        self._tables = {}  # lazy cache
 
-        for f in files:
+        for file_idx, f in enumerate(files):
             reader = pa.ipc.open_stream(f)
             table = reader.read_all()
             n_rows = table.num_rows
 
-            # Batch extract labels
             has_label = "label" in table.column_names
-            labels_col = table.column("label").to_pylist() if has_label else [-1] * n_rows
+            labels = table.column("label").to_pylist() if has_label else [-1] * n_rows
 
-            # Process rows
-            data_col = table.column("data")
-            for i in range(n_rows):
-                row_data = data_col[i].as_py()  # list[list[float]]
-                n_ch = len(row_data)
-                wnd_len = len(row_data[0])
-                arr = np.array(row_data, dtype=np.float32)  # [C, T]
+            # Peek at first row to get shape info
+            row0 = table.column("data")[0].as_py()
+            n_ch = len(row0)
+            wnd_len = len(row0[0])
+            num_segs = wnd_len // segment_length
 
-                label = labels_col[i]
+            for row_idx in range(n_rows):
+                for seg_off in range(num_segs):
+                    self.index.append((file_idx, row_idx, seg_off, n_ch, labels[row_idx]))
 
-                # Slice into segment_length chunks
-                for start in range(0, wnd_len - segment_length + 1, segment_length):
-                    seg = arr[:, start : start + segment_length]
-                    self.segments.append(seg)
-                    self.labels.append(label)
-                    self.n_channels_list.append(n_ch)
+            del table  # free memory
 
         print(
             f"[EEGFMDataset] {dataset_name}/{split}: "
-            f"{len(self.segments)} segments from {len(files)} files, "
-            f"channels={self.n_channels_list[0] if self.segments else 0}, "
-            f"seg_len={segment_length}"
+            f"{len(self.index)} segments from {len(files)} files"
         )
 
+    def _get_table(self, file_idx: int) -> pa.Table:
+        """Lazy-load and cache Arrow table."""
+        if file_idx not in self._tables:
+            reader = pa.ipc.open_stream(self.files[file_idx])
+            self._tables[file_idx] = reader.read_all()
+            # Keep cache bounded: evict old tables if too many
+            if len(self._tables) > 3:
+                oldest = min(self._tables.keys())
+                if oldest != file_idx:
+                    del self._tables[oldest]
+        return self._tables[file_idx]
+
     def __len__(self) -> int:
-        return len(self.segments)
+        return len(self.index)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int, int]:
-        """Returns (eeg_padded, n_channels, label)."""
-        seg = self.segments[idx]  # [C, T]
-        n_ch = self.n_channels_list[idx]
+        file_idx, row_idx, seg_off, n_ch, label = self.index[idx]
+
+        table = self._get_table(file_idx)
+        row_data = table.column("data")[row_idx].as_py()
+        arr = np.array(row_data, dtype=np.float32)  # [C, T]
+
+        # Slice segment
+        start = seg_off * self.segment_length
+        seg = arr[:, start : start + self.segment_length]
 
         # Zero-pad to max_channels
         C, T = seg.shape
@@ -101,7 +124,7 @@ class EEGFMDataset(Dataset):
         else:
             seg = seg[: self.max_channels]
 
-        return torch.from_numpy(seg), n_ch, self.labels[idx]
+        return torch.from_numpy(seg), n_ch, label
 
 
 class EEGFMFinetuneDataset(Dataset):
@@ -123,7 +146,6 @@ class EEGFMFinetuneDataset(Dataset):
         return len(self.inner)
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
-        """Returns (eeg_padded, label)."""
         seg, _, label = self.inner[idx]
         return seg, label
 
@@ -148,36 +170,12 @@ def get_eegfm_pretrain_loader(
     batch_size: int = 64,
     num_workers: int = 4,
 ) -> DataLoader:
-    """Create pretrain DataLoader from multiple EEG-FM-Bench datasets.
-
-    Args:
-        eegfm_processed_root: root path to EEG-FM-Bench processed data
-            e.g., '.../EEG-FM-Bench/assets/data/processed/fs_256'
-        dataset_configs: list of dicts with keys:
-            - name: dataset name (e.g., 'spis_resting_state')
-            - config: config name (e.g., 'pretrain' or 'finetune')
-            - splits: list of splits to use (e.g., ['train'] or ['train', 'validation'])
-        segment_length: fixed segment length in samples
-        max_channels: zero-pad channels to this number
-        batch_size: batch size
-        num_workers: DataLoader workers
-
-    Returns:
-        DataLoader
-    """
+    """Create pretrain DataLoader from multiple EEG-FM-Bench datasets."""
     datasets = []
     for dc in dataset_configs:
-        # Auto-detect version directory
-        base = f"{eegfm_processed_root}/{dc['name']}/{dc['config']}"
-        arrow_dir = None
-        if os.path.isdir(base):
-            for sub in sorted(os.listdir(base)):
-                sub_path = os.path.join(base, sub)
-                if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
-                    arrow_dir = sub_path
-                    break
+        arrow_dir = _find_arrow_dir(eegfm_processed_root, dc["name"], dc["config"])
         if arrow_dir is None:
-            arrow_dir = f"{base}/1.0.0"  # fallback
+            arrow_dir = f"{eegfm_processed_root}/{dc['name']}/{dc['config']}/1.0.0"
         for split in dc.get("splits", ["train"]):
             try:
                 ds = EEGFMDataset(
@@ -218,22 +216,10 @@ def get_eegfm_finetune_loaders(
     batch_size: int = 64,
     num_workers: int = 4,
 ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
-    """Create train/test/validation DataLoaders for fine-tuning.
-
-    Returns:
-        (train_loader, test_loader, val_loader or None)
-    """
-    # Auto-detect version directory
-    base = f"{eegfm_processed_root}/{dataset_name}/{config_name}"
-    arrow_dir = None
-    if os.path.isdir(base):
-        for sub in sorted(os.listdir(base)):
-            sub_path = os.path.join(base, sub)
-            if os.path.isdir(sub_path) and glob.glob(f"{sub_path}/*.arrow"):
-                arrow_dir = sub_path
-                break
+    """Create train/test/validation DataLoaders for fine-tuning."""
+    arrow_dir = _find_arrow_dir(eegfm_processed_root, dataset_name, config_name)
     if arrow_dir is None:
-        arrow_dir = f"{base}/1.0.0"  # fallback
+        arrow_dir = f"{eegfm_processed_root}/{dataset_name}/{config_name}/1.0.0"
 
     train_ds = EEGFMFinetuneDataset(arrow_dir, dataset_name, "train", segment_length, max_channels)
     test_ds = EEGFMFinetuneDataset(arrow_dir, dataset_name, "test", segment_length, max_channels)
