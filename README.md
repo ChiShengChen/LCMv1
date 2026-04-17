@@ -4,7 +4,7 @@ Self-supervised EEG foundation model using momentum contrastive learning + maske
 
 **Paper:** "Large Cognition Model: Towards Pretrained Electroencephalography (EEG) Foundation Model" (Chen et al., 2025, arXiv:2502.17464)
 
-> ⚠️ **Note:** 由於原版的 code 已遺失，這是一年後想辦法復現實作的版本，但是由於環境與一些參數調教問題，目前還沒復現 arXiv 上的效能。
+> ⚠️ **Note:** The original code was lost. This is a re-implementation attempted one year later. Due to environment differences and hyperparameter tuning issues, the performance reported in the arXiv paper has not yet been reproduced.
 
 ---
 
