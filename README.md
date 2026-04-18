@@ -239,6 +239,28 @@ Toggle components via CLI flags:
 
 ---
 
+## Actual Reproduction Results
+
+Fine-tuned on **BCIC-2A** (4 classes) with 3 seeds (42, 123, 456), 100 finetune epochs, CrossEntropy loss. Metric: **balanced accuracy** (mean ± std). These numbers are below the paper — see the reproducibility note at the top of this README.
+
+| Configuration | Bal. Acc. | Cohen's κ | Weighted F1 |
+|---|---|---|---|
+| No pretrain | 0.3212 ± 0.0220 | 0.0949 ± 0.0293 | 0.3105 ± 0.0253 |
+| Pretrain v2 (106,970 samples, 50 epochs) | **0.3640 ± 0.0249** | 0.1520 ± 0.0332 | 0.3477 ± 0.0182 |
+| Pretrain v3 (865,399 samples, 10 epochs) | 0.3461 ± 0.0104 | 0.1281 ± 0.0139 | 0.3316 ± 0.0129 |
+
+**Pretrain configuration (both versions):** MSE contrastive + MSE reconstruction, λ = 1.0, mask ratio 0.75.
+
+- **v2:** tuab_chunks (15 chunks) + spis_resting_state (train+val) + bcic_2a (train), 50 epochs
+- **v3:** tuab_chunks (125 chunks) + spis_resting_state (train+val) + bcic_2a (train), 10 epochs
+
+**Observations**
+- Pretraining helps over no-pretrain by ~3-4 balanced-acc points.
+- Scaling pretrain data ×8 (v2 → v3) **does not improve** downstream performance; likely under-trained at 10 epochs. v2 (50 epochs on smaller pool) remains best.
+- Absolute accuracy is ~20 points below the paper's 0.6166 — ongoing investigation into dataset version, preprocessing, hyperparameters, and channel mapping differences.
+
+---
+
 ## Citation
 
 ```bibtex
